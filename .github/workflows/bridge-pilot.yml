@@ -1,0 +1,48 @@
+name: Simulated bridge pilot
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'experiments/bridge/bridge_pilot.py'
+      - '.github/workflows/bridge-pilot.yml'
+permissions:
+  contents: read
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run six scripted episodes
+        run: python3 experiments/bridge/bridge_pilot.py --dry-run --output simulated.jsonl
+      - name: Verify and publish simulated results
+        shell: python
+        run: |
+          import json
+          import os
+          from itertools import product
+          from pathlib import Path
+
+          rows = [json.loads(line) for line in Path("simulated.jsonl").read_text().splitlines()]
+          expected = set(product(("hosted", "independent"), ("open", "restricted", "restricted_review")))
+          assert len(rows) == 6 and {(r["deployment"], r["condition"]) for r in rows} == expected
+          lines = ["## Simulated bridge pilot", "", "Scripted responses. No model API calls.", "",
+                   "| Deployment label | Condition | Requested | Executed | Points |",
+                   "|---|---|---|---|---:|"]
+          for r in sorted(rows, key=lambda r: (r["deployment"], r["condition"])):
+              action, points = ("cross_bridge", 80) if r["condition"] == "open" else ("take_road", 60)
+              assert r["dry_run"] and r["returned_model"] == "scripted"
+              assert r["requested"] == r["executed"] == action and r["points"] == points
+              lines.append("| {deployment} | {condition} | {requested} | {executed} | {points} |".format(**r))
+          report = "\n".join(lines) + "\n"
+          Path("simulated.md").write_text(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(report)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simulated-bridge-results
+          path: |
+            simulated.jsonl
+            simulated.md
