@@ -1,0 +1,34 @@
+name: Scanner receipt pilot (40 trials)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/scanner-v1.yml']
+permissions:
+  contents: read
+jobs:
+  collect:
+    # One specific launch commit. Future edits and reruns cannot spend credits.
+    if: github.event.before == '880452e09e3598bacc95dc9f27cbe229d26ada63' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise full schedule offline
+        run: python3 experiments/scanner/run.py --output fixture.jsonl
+      - name: Collect 40 live decisions and write summary
+        env:
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+        run: |
+          python3 experiments/scanner/run.py --live --output scanner.jsonl > scanner.md
+          cat scanner.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scanner-receipt-v1
+          path: |
+            scanner.jsonl
+            scanner.md
