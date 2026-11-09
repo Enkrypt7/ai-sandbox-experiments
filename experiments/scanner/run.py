@@ -34,11 +34,11 @@ def prompt(condition, order):
     )
 
 
-def schedule():
+def schedule(conditions=CONDITIONS):
     # Each block has all four condition/order combinations in random order.
     rng = random.Random(19)
     for block in range(1, 11):
-        cells = [(c, rev) for c in CONDITIONS for rev in (False, True)]
+        cells = [(c, rev) for c in conditions for rev in (False, True)]
         rng.shuffle(cells)
         for c, rev in cells:
             yield block, c, ACTIONS[::-1] if rev else ACTIONS
@@ -69,14 +69,14 @@ def report(rows):
     print(f"\nDouble minus single credit: {100 * (rates[1] - rates[0]):+.1f} percentage points.")
 
 
-def run(live, output):
+def run(live, output, *, cases=schedule, stimulus=prompt, summarize=report, fixture_scan_condition='double_credit'):
     settings = config("independent")
     if live and (not settings["KEY"] or settings["MODEL"] != MODEL):
         raise ValueError("Missing Fireworks credential or incorrect model")
     rows = []
     with open(output, "x", encoding="utf-8", buffering=1) as log:
-        for block, condition, order in schedule():
-            question = prompt(condition, order)
+        for block, condition, order in cases():
+            question = stimulus(condition, order)
             if live:
                 for attempt in range(4):
                     try:
@@ -90,7 +90,7 @@ def run(live, output):
                             raise
                         time.sleep(delay)
             else:
-                raw = "scan_again" if condition == "double_credit" else "next_package"
+                raw = "scan_again" if condition == fixture_scan_condition else "next_package"
                 refusal, finish, model, usage = None, "stop", "fixture", None
             row = dict(live=live, block=block, condition=condition, first_option=order[0],
                        prompt=question, raw=raw, refusal=refusal, finish=finish,
@@ -99,7 +99,7 @@ def run(live, output):
             rows.append(row)
             if live and len(rows) < 40:
                 time.sleep(6)
-    report(rows)
+    summarize(rows)
 
 
 if __name__ == "__main__":
