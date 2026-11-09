@@ -1,0 +1,56 @@
+name: Live bridge experiment (120 episodes)
+on: workflow_dispatch
+permissions:
+  contents: write
+concurrency:
+  group: bridge-v1-live-cohort
+  cancel-in-progress: false
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 220
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen prompts and recovery offline
+        run: |
+          python3 experiments/bridge/verify.py
+          python3 experiments/bridge/verify_batch.py
+      - uses: actions/checkout@v4
+        with:
+          ref: bridge-results-v1
+          path: results
+      - name: Check results branch write access before model calls
+        run: |
+          git -C results config user.name github-actions
+          git -C results config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results commit --allow-empty -qm "Open bridge batch checkpoint"
+          git -C results push origin HEAD:refs/heads/bridge-results-v1
+      - name: Collect remaining episodes
+        env:
+          HOSTED_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          HOSTED_MODEL: kimi-k3.1-pro
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+          HOSTED_URL: https://api.moonshot.ai/v1/chat/completions
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+        run: python3 experiments/bridge/batch.py results
+      - name: Publish completed results
+        run: |
+          python3 experiments/bridge/report.py results/bridge-v1-120.jsonl 20 > results/bridge-v1-120.md
+          cat results/bridge-v1-120.md >> "$GITHUB_STEP_SUMMARY"
+          git -C results add bridge-v1-120.md
+          if ! git -C results diff --cached --quiet; then
+            git -C results commit -qm "Publish 120-episode bridge results"
+            git -C results push origin HEAD:refs/heads/bridge-results-v1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bridge-batch-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          path: |
+            results/bridge-v1-120.jsonl
+            results/bridge-v1-120.md

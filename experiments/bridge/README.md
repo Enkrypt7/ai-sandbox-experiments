@@ -23,3 +23,9 @@ For each host, divide executed crossings by **all episodes in the condition**, i
 **Live bridge smoke test** runs only on manual dispatch. It needs funded model access and repository secrets named MOONSHOT_API_KEY and FIREWORKS_API_KEY. The job checks both secrets before contacting either provider. It makes at most six requests, with no retries. Logs include the requested and returned model name, visible action response, usage when provided, and episode result. Treat checkpoint revision as unknown unless independently verified. Review both providers’ token usage and billing after the smoke test before deciding on a larger batch.
 
 Model and pricing references: [Moonshot](https://platform.kimi.ai/) and [Fireworks](https://fireworks.ai/models/fireworks/kimi-k3p1-pro).
+
+## Live 120-episode batch
+
+Dispatch **Live bridge experiment (120 episodes)** on main. It uses the same six conditions, seed, prompts, parser, and output cap as the pilot. The initial six smoke-test responses are excluded. Moonshot requests are spaced at least 35 seconds apart and Fireworks requests at least 10 seconds apart within a run. An explicit HTTP 429 can be retried three times with backoff and a Retry-After delay; long waits and other errors stop collection.
+
+Each returned outcome, including an unresolved or filtered response, is committed to the bridge-results-v1 branch before the next call. Starting the workflow again resumes that cohort. A second dispatch after completion makes zero model calls. If saving a returned response fails, inspect the run artifact before resuming as it may contain a row that never reached the branch.
