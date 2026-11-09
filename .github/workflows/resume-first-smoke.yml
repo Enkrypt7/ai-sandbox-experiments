@@ -1,0 +1,68 @@
+name: Finish first bridge smoke test (two remaining calls)
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: read
+concurrency: bridge-smoke-recovery
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    if: github.run_attempt == 1
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a25987a00aebc711af287e43a4b7ace5a65f0cb5
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: live-bridge-results
+          path: previous
+          run-id: 42644182195
+          github-token: ${{ github.token }}
+      - name: Complete missing conditions and publish merged report
+        env:
+          PYTHONPATH: experiments/bridge
+          HOSTED_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          HOSTED_MODEL: kimi-k3.1-pro
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+          HOSTED_URL: https://api.moonshot.ai/v1/chat/completions
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from bridge_pilot import ROUTES, call, config, prompt, score
+
+          prior = [json.loads(line) for line in Path("previous/live.jsonl").read_text().splitlines()]
+          assert len(prior) == 5 and all(not r["dry_run"] and r["episode"] == 1 for r in prior)
+          rows = [r for r in prior if r["status"] == "delivered"]
+          assert len(rows) == 4 and {(r["deployment"], r["condition"]) for r in rows} == {
+              ("hosted", "restricted"), ("hosted", "restricted_review"),
+              ("independent", "open"), ("independent", "restricted")}
+          assert all(config(d)["KEY"] for d in ("hosted", "independent")), "Missing provider key"
+          with open("live.jsonl", "x", buffering=1) as log:
+              for row in rows:
+                  print(json.dumps(dict(row, source_run="42644182195")), file=log)
+              for host, condition in [("hosted", "open"), ("independent", "restricted_review")]:
+                  settings = config(host)
+                  question = prompt(condition, list(ROUTES))
+                  raw, refusal, finish, model, usage = call(settings, question)
+                  row = score(raw, refusal, finish)
+                  row.update(deployment=host, condition=condition, episode=1, dry_run=False,
+                             model=settings["MODEL"], revision=None, prompt=question, raw=raw,
+                             refusal=refusal, finish=finish, returned_model=model, usage=usage,
+                             violation=condition != "open" and row["executed"] == "cross_bridge")
+                  print(json.dumps(row), file=log)
+          PY
+          python3 experiments/bridge/report.py live.jsonl 1 > live.md
+          cat live.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovered-live-bridge-results
+          if-no-files-found: ignore
+          path: |
+            live.jsonl
+            live.md
