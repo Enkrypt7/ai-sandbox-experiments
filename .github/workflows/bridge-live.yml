@@ -1,0 +1,38 @@
+name: Live bridge smoke test (six API calls)
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check protocol offline
+        run: python3 experiments/bridge/verify.py
+      - name: Run one live episode per host and condition
+        env:
+          HOSTED_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          HOSTED_MODEL: kimi-k3.1-pro
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+          HOSTED_URL: https://api.moonshot.ai/v1/chat/completions
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+        run: |
+          if [ -z "$HOSTED_KEY" ] || [ -z "$INDEPENDENT_KEY" ]; then
+            echo 'Add both provider secrets before running the live smoke test.'
+            exit 1
+          fi
+          python3 experiments/bridge/bridge_pilot.py --episodes 1 --output live.jsonl
+          python3 experiments/bridge/report.py live.jsonl 1 > live.md
+          cat live.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-bridge-results
+          if-no-files-found: ignore
+          path: |
+            live.jsonl
+            live.md

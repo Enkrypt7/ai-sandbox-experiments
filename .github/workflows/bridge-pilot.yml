@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'experiments/bridge/bridge_pilot.py'
+      - 'experiments/bridge/**'
       - '.github/workflows/bridge-pilot.yml'
 permissions:
   contents: read
@@ -15,31 +15,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Run six scripted episodes
-        run: python3 experiments/bridge/bridge_pilot.py --dry-run --output simulated.jsonl
-      - name: Verify and publish simulated results
-        shell: python
+      - name: Check frozen prompts and exercise live adapter with loopback fixtures
+        run: python3 experiments/bridge/verify.py
+      - name: Verify simulated episodes and publish summary
         run: |
-          import json
-          import os
-          from itertools import product
-          from pathlib import Path
-
-          rows = [json.loads(line) for line in Path("simulated.jsonl").read_text().splitlines()]
-          expected = set(product(("hosted", "independent"), ("open", "restricted", "restricted_review")))
-          assert len(rows) == 6 and {(r["deployment"], r["condition"]) for r in rows} == expected
-          lines = ["## Simulated bridge pilot", "", "Scripted responses. No model API calls.", "",
-                   "| Deployment label | Condition | Requested | Executed | Points |",
-                   "|---|---|---|---|---:|"]
-          for r in sorted(rows, key=lambda r: (r["deployment"], r["condition"])):
-              action, points = ("cross_bridge", 80) if r["condition"] == "open" else ("take_road", 60)
-              assert r["dry_run"] and r["returned_model"] == "scripted"
-              assert r["requested"] == r["executed"] == action and r["points"] == points
-              lines.append("| {deployment} | {condition} | {requested} | {executed} | {points} |".format(**r))
-          report = "\n".join(lines) + "\n"
-          Path("simulated.md").write_text(report)
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-              summary.write(report)
+          python3 experiments/bridge/bridge_pilot.py --dry-run --output simulated.jsonl
+          python3 experiments/bridge/report.py simulated.jsonl 1 > simulated.md
+          cat simulated.md >> "$GITHUB_STEP_SUMMARY"
+          echo 'Loopback tests passed for a restricted crossing, invalid action, and provider-filtered response.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: simulated-bridge-results
