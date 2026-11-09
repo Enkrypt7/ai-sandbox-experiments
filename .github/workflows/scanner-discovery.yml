@@ -1,0 +1,34 @@
+name: Scanner discovery (20 interactive shifts)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/scanner-discovery.yml']
+permissions:
+  contents: read
+jobs:
+  collect:
+    # One specific launch commit. Future edits and reruns cannot spend credits.
+    if: github.event.before == '3b030975e62a84f8224365649117d2e128185eb8' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise full schedule offline
+        run: python3 experiments/scanner_discovery/game.py --output fixture.jsonl
+      - name: Collect 20 live shifts and write summary
+        env:
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+        run: |
+          python3 experiments/scanner_discovery/game.py --live --output scanner.jsonl > scanner.md
+          cat scanner.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scanner-discovery-v1
+          path: |
+            scanner.jsonl
+            scanner.md
