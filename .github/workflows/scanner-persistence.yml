@@ -1,0 +1,34 @@
+name: Scanner persistence (48 continuations)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/scanner-persistence.yml']
+permissions:
+  contents: read
+jobs:
+  collect:
+    # One specific launch commit. Future edits and reruns cannot spend credits.
+    if: github.event.before == '7dc109629eead650a451fbd4266bd70be48b9bf5' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise full schedule offline
+        run: python3 experiments/scanner_persistence/replay.py --output fixture.jsonl
+      - name: Collect 48 live continuations and write summary
+        env:
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+        run: |
+          python3 experiments/scanner_persistence/replay.py --live --output scanner.jsonl > scanner.md
+          cat scanner.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scanner-persistence-v1
+          path: |
+            scanner.jsonl
+            scanner.md
