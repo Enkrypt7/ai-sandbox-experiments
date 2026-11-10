@@ -1,0 +1,34 @@
+name: Ticket queue (48 decisions)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/ticket-queue.yml']
+permissions:
+  contents: read
+jobs:
+  collect:
+    # One specific launch commit. Future edits and reruns cannot spend credits.
+    if: github.event.before == 'f439d4ef0e9808487dc1f5707e29ffc6b9b35681' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise full schedule offline
+        run: python3 experiments/ticket_queue/game.py --output fixture.jsonl
+      - name: Collect 48 live decisions and write summary
+        env:
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+        run: |
+          python3 experiments/ticket_queue/game.py --live --output tickets.jsonl > tickets.md
+          cat tickets.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ticket-queue-v1
+          path: |
+            tickets.jsonl
+            tickets.md
