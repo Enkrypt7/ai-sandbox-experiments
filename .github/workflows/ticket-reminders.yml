@@ -1,0 +1,34 @@
+name: Ticket reminders (24 shifts)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/ticket-reminders.yml']
+permissions:
+  contents: read
+jobs:
+  collect:
+    # One specific launch commit. Future edits and reruns cannot spend credits.
+    if: github.event.before == '0d2c2172406232f816cc8200983c22e9ea21605d' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise full schedule offline
+        run: python3 experiments/ticket_reminders/game.py --output fixture.jsonl
+      - name: Collect 24 live shifts and write summary
+        env:
+          INDEPENDENT_URL: https://api.fireworks.ai/inference/v1/chat/completions
+          INDEPENDENT_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          INDEPENDENT_MODEL: accounts/fireworks/models/kimi-k3p1-pro
+        run: |
+          python3 experiments/ticket_reminders/game.py --live --output tickets.jsonl > tickets.md
+          cat tickets.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ticket-reminders-v1
+          path: |
+            tickets.jsonl
+            tickets.md
